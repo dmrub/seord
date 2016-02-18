@@ -83,11 +83,13 @@ typedef enum {
 	GPOS,  ///< Graph,  Predicate, Object,    Subject
 } SordOrder;
 
+#ifdef SORD_DEBUG_SEARCH
 /** String name of each ordering (array indexed by SordOrder) */
 static const char* const order_names[NUM_ORDERS] = {
 	"spo",  "sop",  "ops",  "osp",  "pso",  "pos",
 	"gspo", "gsop", "gops", "gosp", "gpso", "gpos"
 };
+#endif
 
 /**
    Quads of indices for each order, from most to least significant
@@ -321,19 +323,19 @@ sord_iter_forward(SordIter* iter)
 		return zix_btree_iter_is_end(iter->cur);
 	}
 
-	SordNode** key = (SordNode**)zix_btree_get(iter->cur);
+	SordNode**     key     = (SordNode**)zix_btree_get(iter->cur);
 	const SordQuad initial = { key[0], key[1], key[2], key[3] };
-	while (true) {
-		zix_btree_iter_increment(iter->cur);
-		if (zix_btree_iter_is_end(iter->cur))
-			return true;
-
+	zix_btree_iter_increment(iter->cur);
+	while (!zix_btree_iter_is_end(iter->cur)) {
 		key = (SordNode**)zix_btree_get(iter->cur);
 		for (int i = 0; i < 3; ++i)
 			if (key[i] != initial[i])
 				return false;
+
+		zix_btree_iter_increment(iter->cur);
 	}
-	assert(false);
+
+	return true;
 }
 
 /**
@@ -361,8 +363,7 @@ sord_iter_seek_match(SordIter* iter)
 static inline bool
 sord_iter_seek_match_range(SordIter* iter)
 {
-	if (iter->end)
-		return true;
+	assert(!iter->end);
 
 	do {
 		const SordNode** key = (const SordNode**)zix_btree_get(iter->cur);
@@ -584,14 +585,10 @@ sord_best_index(SordModel*     sord,
 	*n_prefix = 0;
 	switch (sig) {
 	case 0x000:
-		if (graph_search) {
-			*mode     = RANGE;
-			*n_prefix = 1;
-			return DEFAULT_GRAPH_ORDER;
-		} else {
-			*mode = ALL;
-			return DEFAULT_ORDER;
-		}
+		assert(graph_search);
+		*mode     = RANGE;
+		*n_prefix = 1;
+		return DEFAULT_GRAPH_ORDER;
 	case 0x111:
 		*mode = SINGLE;
 		return graph_search ? DEFAULT_GRAPH_ORDER : DEFAULT_ORDER;
@@ -617,7 +614,7 @@ sord_best_index(SordModel*     sord,
 	switch (sig) {
 		PAT_CASE(0x011, FILTER_RANGE, OSP, PSO, 1);
 		PAT_CASE(0x101, FILTER_RANGE, SPO, OPS, 1);
-		PAT_CASE(0x110, FILTER_RANGE, SOP, POS, 1);
+		// SPO is always present, so 0x110 is never reached here
 	default: break;
 	}
 
@@ -905,16 +902,14 @@ SordNodeType
 sord_node_get_type(const SordNode* node)
 {
 	switch (node->node.type) {
-	case SERD_BLANK:
-		return SORD_BLANK;
-	case SERD_LITERAL:
-		return SORD_LITERAL;
 	case SERD_URI:
 		return SORD_URI;
+	case SERD_BLANK:
+		return SORD_BLANK;
 	default:
-		fprintf(stderr, "error: invalid node type\n");
-		return (SordNodeType)0;
+		return SORD_LITERAL;
 	}
+	SORD_UNREACHABLE();
 }
 
 const uint8_t*
@@ -1062,7 +1057,7 @@ sord_new_literal_counted(SordWorld*     world,
 	SordNode key = {
 		{ str, n_bytes, n_chars, flags, SERD_LITERAL }, 1, { { 0 } }
 	};
-	key.meta.lit.datatype = datatype;
+	key.meta.lit.datatype = sord_node_copy(datatype);
 	memset(key.meta.lit.lang, 0, sizeof(key.meta.lit.lang));
 	if (lang) {
 		strncpy(key.meta.lit.lang, lang, sizeof(key.meta.lit.lang));
@@ -1165,10 +1160,9 @@ sord_node_free(SordWorld* world, SordNode* node)
 {
 	if (!node) {
 		return;
-	}
-
-	assert(node->refs > 0);
-	if (--node->refs == 0) {
+	} else if (node->refs == 0) {
+		error(world, SERD_ERR_BAD_ARG, "attempt to free garbage node\n");
+	} else if (--node->refs == 0) {
 		sord_node_free_internal(world, node);
 	}
 }
@@ -1252,6 +1246,7 @@ sord_erase(SordModel* sord, SordIter* iter)
 {
 	if (sord->n_iters > 1) {
 		error(sord->world, SERD_ERR_BAD_ARG, "erased with many iterators\n");
+		return SERD_ERR_BAD_ARG;
 	}
 
 	SordQuad tup;

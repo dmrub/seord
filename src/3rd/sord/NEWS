@@ -1,15 +1,29 @@
-sord (0.13.0) unstable;
+sord (0.14.1) unstable;
+
+  * Fix documentation generation
+  * Return error from sord_inserter_write_statement() if a node can not be written
+    (e.g. undefined prefix)
+
+ -- David Robillard <d@drobilla.net>  Fri, 04 Dec 2015 21:23:36 -0500
+
+sord (0.14.0) stable;
 
   * Reduce memory usage and increase performance with a better data structure
   * Add sord_erase() for erasing statements via an iterator
   * Fix bugs with stores that contain both graphs and default graph statements
+  * Fix crash caused by multiple deletion of datatype nodes
   * Fix compilation on compilers that do not support -pthread flag
+  * Fix minor memory leak in sordi
+  * Fix using sordi with stdin
+  * Show sordi errors in standard format
   * sord_validate: More extensive validation, including cardinality,
     PlainLiteral, and someValuesFrom restrictions.
   * This release does not break the ABI, but the semantics of iterators has
     changed: any modification to a model invalidates iterators on that model
+  * Improve test coverage
+  * Upgrade to waf 1.8.14
 
- -- David Robillard <d@drobilla.net>  Thu, 19 Feb 2015 23:18:02 -0500
+ -- David Robillard <d@drobilla.net>  Thu, 08 Oct 2015 15:37:36 -0400
 
 sord (0.12.2) stable;
 

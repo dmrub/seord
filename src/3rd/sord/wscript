@@ -2,6 +2,7 @@
 import glob
 import os
 import subprocess
+import sys
 import waflib.Logs as Logs
 import waflib.Options as Options
 import waflib.extras.autowaf as autowaf
@@ -10,7 +11,7 @@ import waflib.extras.autowaf as autowaf
 # major increment <=> incompatible changes
 # minor increment <=> compatible changes (additions)
 # micro increment <=> no interface changes
-SORD_VERSION       = '0.13.0'
+SORD_VERSION       = '0.14.1'
 SORD_MAJOR_VERSION = '0'
 
 # Mandatory waf variables
@@ -27,6 +28,8 @@ def options(opt):
                    help='Do not build command line utilities')
     opt.add_option('--test', action='store_true', dest='build_tests',
                    help='Build unit tests')
+    opt.add_option('--no-coverage', action='store_true', dest='no_coverage',
+                   help='Do not use gcov for code coverage')
     opt.add_option('--static', action='store_true', dest='static',
                    help='Build static library')
     opt.add_option('--no-shared', action='store_true', dest='no_shared',
@@ -44,7 +47,7 @@ def configure(conf):
         except:
             Logs.warn("No C++ compiler, sordmm.hpp compile test skipped")
             pass
-        
+
     autowaf.configure(conf)
     autowaf.set_c99_mode(conf)
     autowaf.display_header('Sord configuration')
@@ -56,10 +59,8 @@ def configure(conf):
     conf.env.BUILD_STATIC = (Options.options.static or
                              Options.options.static_progs)
 
-    if conf.env.BUILD_TESTS:
-        conf.check(lib         = 'gcov',
-                   define_name = 'HAVE_GCOV',
-                   mandatory   = False)
+    if conf.env.BUILD_TESTS and not Options.options.no_coverage:
+        conf.check_cc(lib='gcov', define_name='HAVE_GCOV', mandatory=False)
 
     autowaf.check_pkg(conf, 'serd-0', uselib_store='SERD',
                       atleast_version='0.18.0', mandatory=True)
@@ -129,7 +130,7 @@ def build(bld):
                   defines         = defines + ['SORD_SHARED', 'SORD_INTERNAL'],
                   cflags          = libflags)
         autowaf.use_lib(bld, obj, 'SERD')
-    
+
     # Static Library
     if bld.env.BUILD_STATIC:
         obj = bld(features        = 'c cstlib',
@@ -209,7 +210,7 @@ def build(bld):
                       source       = 'src/%s.c' % i,
                       includes     = ['.', './src'],
                       use          = 'libsord',
-                      lib          = libs, 
+                      lib          = libs,
                       target       = i,
                       install_path = '${BINDIR}',
                       defines      = defines)
@@ -273,12 +274,20 @@ def test(ctx):
 
     nul = os.devnull
 
+    snippet = '<s> <p> <o> .'
+    if sys.platform == "win32":
+        snippet = snippet.replace('<', '^<').replace('>', '^>')
+    else:
+        snippet = '"%s"' % snippet
+
     autowaf.run_tests(ctx, APPNAME, [
-            'sordi_static file://%s/tests/manifest.ttl > %s' % (srcdir, nul),
-            'sordi_static %s/tests/UTF-8.ttl > %s' % (srcdir, nul),
+            'sordi_static "file://%s/tests/manifest.ttl" > %s' % (srcdir, nul),
+            'sordi_static "%s/tests/UTF-8.ttl" > %s' % (srcdir, nul),
             'sordi_static -v > %s' % nul,
             'sordi_static -h > %s' % nul,
             'sordi_static -s "<foo> a <#Thingie> ." file:///test > %s' % nul,
+            'echo %s | sordi_static - http://example.org/' % snippet,
+            'echo %s | sordi_static -o turtle - http://example.org/' % snippet,
             'sordi_static %s > %s' % (nul, nul)],
                       0, name='sordi-cmd-good')
 
@@ -293,6 +302,8 @@ def test(ctx):
             'sordi_static -i illegal > %s' % nul,
             'sordi_static -o illegal > %s' % nul,
             'sordi_static -i turtle > %s' % nul,
+            'sordi_static -i ntriples > %s' % nul,
+            'echo "<s> <p> <o> ." | sordi_static -',
             'sordi_static /no/such/file > %s' % nul],
                       1, name='sordi-cmd-bad')
 
